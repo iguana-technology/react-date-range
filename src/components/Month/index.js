@@ -13,7 +13,7 @@ import {
   isAfter,
   isWeekend,
   isWithinInterval,
-  eachDayOfInterval,
+  eachDayOfInterval, closestTo, addDays, isSameMonth,
 } from 'date-fns';
 import { getMonthDisplayRange } from '../../utils';
 
@@ -34,6 +34,14 @@ function renderWeekdays(styles, dateOptions, weekdayDisplayFormat) {
 }
 
 class Month extends PureComponent {
+   minDate = (date1, date2) => {
+    if(isBefore(date1, date2) || isSameDay(date1,date2)) return date1
+    return date2
+  }
+  maxDate = (date1, date2) => {
+    if(isBefore(date2, date1) || isSameDay(date2,date1)) return date1
+    return date2
+  }
   render() {
     const now = new Date();
     const { displayMode, focusedRange, drag, styles, disabledDates, disabledDay } = this.props;
@@ -56,6 +64,7 @@ class Month extends PureComponent {
         };
       });
     }
+
     const showPreview = this.props.showPreview && !drag.disablePreview;
     return (
       <div className={styles.month} style={this.props.style}>
@@ -69,14 +78,27 @@ class Month extends PureComponent {
         <div className={styles.days} onMouseLeave={this.props.onMouseLeave}>
           {eachDayOfInterval({ start: monthDisplay.start, end: monthDisplay.end }).map(
             (day, index) => {
+              const {oneDayAvailableDates,dropOffOnlyDates,pickUpOnlyDates } = this.props
               const isStartOfMonth = isSameDay(day, monthDisplay.startDateOfMonth);
+              const isInCurrentMonth = isSameMonth(day, this.props.month)
               const isEndOfMonth = isSameDay(day, monthDisplay.endDateOfMonth);
               const isOutsideMinMax =
                 (minDate && isBefore(day, minDate)) || (maxDate && isAfter(day, maxDate));
               const isDisabledSpecifically = disabledDates.some(disabledDate =>
                 isSameDay(disabledDate, day)
               );
+              const endDate = ranges?.[0]?.endDate
+              const startDate = ranges?.[0]?.startDate
               const isDisabledDay = disabledDay(day);
+              const maxRangeDate = this.maxDate(ranges?.[0]?.startDate, endDate)
+              const hasPastUnavailabilities = (ranges.length > 0 && isAfter(day, closestTo(maxRangeDate, disabledDates.filter(d => !isBefore(d, maxRangeDate)))))
+              const isPastDay = (drag.status && isBefore(day, drag.range.startDate))
+              const isOnlyPickup = isAfter(addDays(day, 1), closestTo(maxRangeDate, [...(pickUpOnlyDates || []), ...(oneDayAvailableDates || [])]?.map((d) => new Date(d))?.filter(d => !isBefore(d, maxRangeDate) && !isSameDay(d, maxRangeDate))))
+              const isAfterOnlyDropOff = !(!ranges?.[0]?.startDate || isBefore(day, startDate)) && isAfter(day, closestTo(maxRangeDate, [...(dropOffOnlyDates || []), ...(oneDayAvailableDates|| [])]?.map((d) => new Date(d))?.filter(d => !isBefore(d, maxRangeDate))))
+              const dropOffDay = dropOffOnlyDates?.some((d) => isSameDay(new Date(d), day))
+              const isOnlyDropOff = dropOffDay && (isBefore(day, startDate) || !startDate ||  (isSameDay(startDate, day) && focusedRange?.[0] === 0))
+              const isOneDayAvailable = oneDayAvailableDates?.some((d) => isSameDay(new Date(d), startDate)) && isAfter(day, startDate)
+
               return (
                 <DayCell
                   {...this.props}
@@ -92,11 +114,19 @@ class Month extends PureComponent {
                   key={index}
                   disabled={isOutsideMinMax || isDisabledSpecifically || isDisabledDay}
                   isPassive={
-                    !isWithinInterval(day, {
+                    !(isInCurrentMonth && isWithinInterval(day, {
                       start: monthDisplay.startDateOfMonth,
                       end: monthDisplay.endDateOfMonth,
-                    })
+                    }))
+                    || isPastDay
+                    || hasPastUnavailabilities
+                    || isOnlyPickup
+                    || isOneDayAvailable
+                    || isAfterOnlyDropOff
                   }
+                  tooltipContent={isOnlyDropOff && this.props?.translations?.dropOffOnly}
+                  isTooltip={isOnlyDropOff}
+                  isUnselectable={isOnlyDropOff}
                   styles={styles}
                   onMouseDown={this.props.onDragSelectionStart}
                   onMouseUp={this.props.onDragSelectionEnd}
@@ -143,6 +173,7 @@ Month.propTypes = {
   showWeekDays: PropTypes.bool,
   showMonthName: PropTypes.bool,
   fixedHeight: PropTypes.bool,
+  translations: PropTypes.object
 };
 
 export default Month;

@@ -9,6 +9,7 @@ import ReactList from 'react-list';
 import { shallowEqualObjects } from 'shallow-equal';
 import {
   addMonths,
+  subMonths,
   format,
   eachDayOfInterval,
   startOfWeek,
@@ -24,7 +25,7 @@ import {
   isSameMonth,
   differenceInDays,
   min,
-  max,
+  max, isBefore, isWithinInterval, isAfter,
 } from 'date-fns';
 import defaultLocale from 'date-fns/locale/en-US';
 import coreStyles from '../../styles';
@@ -39,6 +40,7 @@ class Calendar extends PureComponent {
     this.listSizeCache = {};
     this.isFirstRender = true;
     this.state = {
+      timeout: null,
       monthNames: this.getMonthNames(),
       focusedDate: calcFocusDate(null, props),
       drag: {
@@ -77,6 +79,14 @@ class Calendar extends PureComponent {
   }
   focusToDate = (date, props = this.props, preventUnnecessary = true) => {
     if (!props.scroll.enabled) {
+      if (preventUnnecessary && props.preventSnapRefocus) {
+        const focusedDateDiff = differenceInCalendarMonths(date, this.state.focusedDate);
+        const isAllowedForward = props.calendarFocus === 'forwards' && focusedDateDiff >= 0;
+        const isAllowedBackward = props.calendarFocus === 'backwards' && focusedDateDiff <= 0;
+        if ((isAllowedForward || isAllowedBackward) && Math.abs(focusedDateDiff) < props.months) {
+          return;
+        }
+      }
       this.setState({ focusedDate: date });
       return;
     }
@@ -269,7 +279,6 @@ class Calendar extends PureComponent {
       endDatePlaceholder,
       ariaLabels,
     } = this.props;
-
     const defaultColor = rangeColors[focusedRange[0]] || color;
     const styles = this.styles;
 
@@ -326,52 +335,64 @@ class Calendar extends PureComponent {
     );
   };
   onDragSelectionStart = date => {
-    const { onChange, dragSelectionEnabled } = this.props;
-
-    if (dragSelectionEnabled) {
-      this.setState({
-        drag: {
-          status: true,
-          range: { startDate: date, endDate: date },
-          disablePreview: true,
-        },
-      });
-    } else {
+    const { onChange, dragSelectionEnabled, displayMode } = this.props;
+      if(dragSelectionEnabled) {
+        const timeout = setTimeout(() => {
+          this.setState({
+            drag: {
+              status: true,
+              range: { startDate: date, endDate: date },
+              disablePreview: true,
+            },
+          });
+        },300)
+        this.setState({
+          timeout
+        })
+      }
       onChange && onChange(date);
-    }
   };
 
   onDragSelectionEnd = date => {
-    const { updateRange, displayMode, onChange, dragSelectionEnabled } = this.props;
-
+    clearTimeout(this.state.timeout)
+    const { dragSelectionEnabled, onChange, submitOnDragEnd } = this.props;
+    const { drag } = this.state;
     if (!dragSelectionEnabled) return;
 
-    if (displayMode === 'date' || !this.state.drag.status) {
+    const disabledInRange = this.props.disabledDates.some((d) => isSameDay(d, date))
+    if (disabledInRange) return;
+    if (submitOnDragEnd && drag.status) {
       onChange && onChange(date);
-      return;
     }
-    const newRange = {
-      startDate: this.state.drag.range.startDate,
-      endDate: date,
-    };
-    if (displayMode !== 'dateRange' || isSameDay(newRange.startDate, date)) {
-      this.setState({ drag: { status: false, range: {} } }, () => onChange && onChange(date));
-    } else {
-      this.setState({ drag: { status: false, range: {} } }, () => {
-        updateRange && updateRange(newRange);
-      });
-    }
+    this.setState({ drag: { status: false, range: {} } });
   };
   onDragSelectionMove = date => {
     const { drag } = this.state;
-    if (!drag.status || !this.props.dragSelectionEnabled) return;
+    const { updateRange, onChange, dragSelectionEnabled, pickUpOnlyDates, dropOffOnlyDates, oneDayAvailableDates } = this.props;
+    if (!drag.status || !drag.range.startDate || !dragSelectionEnabled) return;
+    const disabledInRange = this.props.disabledDates.some((d) => isSameDay(d, date))
+    const isOnlyPickUp =  pickUpOnlyDates?.some(d => isSameDay(new Date(d), date))
+    const isOnlyDropOff =  dropOffOnlyDates?.some(d => isSameDay(addDays(new Date(d), 1), date))
+    const isOneDayAvailable =  oneDayAvailableDates?.some(d => isSameDay(addDays(new Date(d), 1), date))
+    if (disabledInRange || isOnlyPickUp || isOnlyDropOff || isOneDayAvailable) return;
+    const newRange = {
+      ...(isBefore(date, drag.range.startDate)
+        ? { startDate: drag.range.startDate, endDate: drag.range.endDate }
+        : { startDate: drag.range.startDate, endDate: date}
+      )
+    }
     this.setState({
       drag: {
         status: drag.status,
-        range: { startDate: drag.range.startDate, endDate: date },
+        range: newRange,
         disablePreview: true,
       },
     });
+
+    if (!this.props.submitOnDragEnd && !drag.status) {
+      return onChange && onChange(date);
+    }
+    !this.props.submitOnDragEnd && updateRange && updateRange(newRange);
   };
 
   estimateMonthSize = (index, cache) => {
@@ -402,6 +423,7 @@ class Calendar extends PureComponent {
       navigatorRenderer,
       className,
       preview,
+      pickUpOnlyDates, dropOffOnlyDates, oneDayAvailableDates
     } = this.props;
     const { scrollArea, focusedDate } = this.state;
     const isVertical = direction === 'vertical';
@@ -449,6 +471,7 @@ class Calendar extends PureComponent {
                   const monthStep = addMonths(minDate, index);
                   return (
                     <Month
+                      translations={this.props?.translations}
                       {...this.props}
                       onPreviewChange={onPreviewChange || this.updatePreview}
                       preview={preview || this.state.preview}
@@ -456,6 +479,9 @@ class Calendar extends PureComponent {
                       key={key}
                       drag={this.state.drag}
                       dateOptions={this.dateOptions}
+                      pickUpOnlyDates={pickUpOnlyDates}
+                      dropOffOnlyDates={dropOffOnlyDates}
+                      oneDayAvailableDates={oneDayAvailableDates}
                       disabledDates={disabledDates}
                       disabledDay={disabledDay}
                       month={monthStep}
@@ -484,7 +510,10 @@ class Calendar extends PureComponent {
               isVertical ? this.styles.monthsVertical : this.styles.monthsHorizontal
             )}>
             {new Array(this.props.months).fill(null).map((_, i) => {
-              const monthStep = addMonths(this.state.focusedDate, i);
+              let monthStep = addMonths(this.state.focusedDate, i);;
+              if (this.props.calendarFocus === 'backwards') {
+                monthStep = subMonths(this.state.focusedDate, this.props.months - 1 - i);
+              }
               return (
                 <Month
                   {...this.props}
@@ -495,6 +524,9 @@ class Calendar extends PureComponent {
                   drag={this.state.drag}
                   dateOptions={this.dateOptions}
                   disabledDates={disabledDates}
+                  pickUpOnlyDates={pickUpOnlyDates}
+              dropOffOnlyDates={dropOffOnlyDates}
+              oneDayAvailableDates={oneDayAvailableDates}
                   disabledDay={disabledDay}
                   month={monthStep}
                   onDragSelectionStart={this.onDragSelectionStart}
@@ -544,6 +576,9 @@ Calendar.defaultProps = {
   editableDateInputs: false,
   dragSelectionEnabled: true,
   fixedHeight: false,
+  calendarFocus: 'forwards',
+  preventSnapRefocus: false,
+  submitOnDragEnd: true,
   ariaLabels: {},
 };
 
@@ -598,7 +633,11 @@ Calendar.propTypes = {
   editableDateInputs: PropTypes.bool,
   dragSelectionEnabled: PropTypes.bool,
   fixedHeight: PropTypes.bool,
+  calendarFocus: PropTypes.string,
+  preventSnapRefocus: PropTypes.bool,
+  submitOnDragEnd: PropTypes.bool,
   ariaLabels: ariaLabelsShape,
+  translations: PropTypes.object,
 };
 
 export default Calendar;
