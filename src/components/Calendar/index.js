@@ -87,9 +87,11 @@ class Calendar extends PureComponent {
           return;
         }
       }
-      this.setState({ focusedDate: date });
+      clearTimeout(this.state.timeout)
+      this.setState({ focusedDate: date, timeout: null });
       return;
     }
+
     const targetMonthIndex = differenceInCalendarMonths(date, props.minDate, this.dateOptions);
     const visibleMonths = this.list.getVisibleRange();
     if (preventUnnecessary && visibleMonths.includes(targetMonthIndex)) return;
@@ -577,7 +579,7 @@ Calendar.defaultProps = {
   dragSelectionEnabled: true,
   fixedHeight: false,
   calendarFocus: 'forwards',
-  preventSnapRefocus: false,
+  preventSnapRefocus: true,
   submitOnDragEnd: true,
   ariaLabels: {},
 };

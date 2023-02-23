@@ -130,7 +130,7 @@ const DayCell = ({ day, disabled, onPreviewChange, onMouseEnter, onMouseDown, on
   };
   const getTooltip = () => {
     if(!tooltipContent) return;
-    return <div className={classnames({[styles.isTooltip]: isTooltip})}>
+    return <div className={classnames({[styles.isTooltip]: isTooltip, [styles.isLeftTooltip]: isStartOfWeek, [styles.isRightTooltip]: isEndOfWeek})}>
       {tooltipContent}
     </div>
   }
