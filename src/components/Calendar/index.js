@@ -435,6 +435,7 @@ class Calendar extends PureComponent {
       ...range,
       color: range.color || rangeColors[i] || color,
     }));
+
     return (
       <div
         className={classnames(this.styles.calendarWrapper, className)}

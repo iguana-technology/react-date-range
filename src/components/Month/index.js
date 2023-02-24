@@ -13,7 +13,7 @@ import {
   isAfter,
   isWeekend,
   isWithinInterval,
-  eachDayOfInterval, closestTo, addDays, isSameMonth,
+  eachDayOfInterval, closestTo, addDays, isSameMonth, isValid,
 } from 'date-fns';
 import { getMonthDisplayRange } from '../../utils';
 
@@ -55,7 +55,7 @@ class Month extends PureComponent {
     let ranges = this.props.ranges;
     if (displayMode === 'dateRange' && drag.status) {
       let { startDate, endDate } = drag.range;
-      ranges = ranges.map((range, i) => {
+      ranges = ranges?.map((range, i) => {
         if (i !== focusedRange[0]) return range;
         return {
           ...range,
@@ -66,9 +66,10 @@ class Month extends PureComponent {
     }
 
     const showPreview = this.props.showPreview && !drag.disablePreview;
+
     return (
       <div className={styles.month} style={this.props.style}>
-        {this.props.showMonthName ? (
+        {this.props.showMonthName && isValid(this.props.month) ? (
           <div className={styles.monthName}>
             {format(this.props.month, this.props.monthDisplayFormat, this.props.dateOptions)}
           </div>
@@ -76,7 +77,7 @@ class Month extends PureComponent {
         {this.props.showWeekDays &&
           renderWeekdays(styles, this.props.dateOptions, this.props.weekdayDisplayFormat)}
         <div className={styles.days} onMouseLeave={this.props.onMouseLeave}>
-          {eachDayOfInterval({ start: monthDisplay.start, end: monthDisplay.end }).map(
+          {isValid(monthDisplay.start) && isValid(monthDisplay.end) && !isAfter(monthDisplay.start, monthDisplay.end) && eachDayOfInterval({ start: monthDisplay.start, end: monthDisplay.end }).map(
             (day, index) => {
               const {oneDayAvailableDates,dropOffOnlyDates,pickUpOnlyDates } = this.props
               const isStartOfMonth = isSameDay(day, monthDisplay.startDateOfMonth);
